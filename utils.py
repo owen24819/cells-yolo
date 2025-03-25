@@ -68,6 +68,9 @@ def convert_split(dataset_name: str, split_dir: str, target_size: tuple[int, int
     if out_img_dir.exists() and out_lbl_dir.exists():
         print(f"Dataset {dataset_name} {split_dir} already exists, skipping...")
         return
+    elif not image_root.exists():
+        print(f"Dataset {dataset_name} {split_dir} does not exist, skipping...")
+        return
     
     out_img_dir.mkdir(parents=True, exist_ok=True)
     out_lbl_dir.mkdir(parents=True, exist_ok=True)
