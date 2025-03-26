@@ -199,7 +199,12 @@ def download_dataset(cfg: OmegaConf):
 
     data_dir = Path(__file__).parent / "datasets"
 
-    if cfg.dataset == "moma":
+    if 'dataset' in cfg:
+        dataset = cfg.dataset
+    else:
+        dataset = Path(cfg.project).name
+
+    if dataset == "moma":
         target_size = (256, 32)
     else:
         raise ValueError(f"Dataset {cfg.dataset_name} not supported")
