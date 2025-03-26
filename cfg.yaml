@@ -13,7 +13,7 @@ model: ${modelname}.pt # (str, optional) path to model file, i.e. yolov8n.pt, yo
 data: datasets/${dataset}/data.yaml # (str, optional) path to data file, i.e. coco8.yaml
 epochs: 100 # (int) number of epochs to train for
 batch: 1 # (int) number of images per batch (-1 for AutoBatch)
-project: runs/${dataset} # (str, optional) project name
+project: runs/${task}/${dataset}/${modelname} # (str, optional) project name, using model name without .pt extension
 time: # (float, optional) number of hours to train for, overrides epochs if supplied
 patience: 100 # (int) epochs to wait for no observable improvement for early stopping of training
 imgsz: [256,32] # (int | list) input images size as int for train and val modes, or list[h,w] for predict and export modes
