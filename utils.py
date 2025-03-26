@@ -202,16 +202,16 @@ def download_dataset(cfg: OmegaConf):
     if 'dataset' in cfg:
         dataset = cfg.dataset
     else:
-        dataset = Path(cfg.project).name
+        dataset = Path(cfg.project).parent.name
 
     if dataset == "moma":
         target_size = (256, 32)
     else:
-        raise ValueError(f"Dataset {cfg.dataset_name} not supported")
+        raise ValueError(f"Dataset {dataset} not supported")
     
-    download_ctc_dataset(dataset_name=cfg.dataset, data_dir=data_dir)
+    download_ctc_dataset(dataset_name=dataset, data_dir=data_dir)
 
-    convert_ctc_to_yolo(dataset_name=cfg.dataset, target_size=target_size, data_dir=data_dir)
+    convert_ctc_to_yolo(dataset_name=dataset, target_size=target_size, data_dir=data_dir)
 
 def get_config():
     """
@@ -222,8 +222,8 @@ def get_config():
 
     # If resume training, load the original config file, otherwise load the default config file
     if 'resume' in cli_cfg and cli_cfg.resume and 'args-path' in cli_cfg:
-        cfg = OmegaConf.load(cli_cfg.args_path)
-        cfg.model = Path(cli_cfg.args_path).parent / 'weights' / 'last.pt'
+        cfg = OmegaConf.load(cli_cfg['args-path'])
+        cfg.model = Path(cli_cfg['args-path']).parent / 'weights' / 'last.pt'
     else:
         cfg = OmegaConf.load('cfg.yaml')
 
