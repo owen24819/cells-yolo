@@ -213,3 +213,20 @@ def download_dataset(cfg: OmegaConf):
 
     convert_ctc_to_yolo(dataset_name=cfg.dataset, target_size=target_size, data_dir=data_dir)
 
+def get_config():
+    """
+    Get the configuration from the command line arguments.
+    """
+    # Load config and merge with CLI arguments
+    cli_cfg = OmegaConf.from_cli()
+
+    # If resume training, load the original config file, otherwise load the default config file
+    if 'resume' in cli_cfg and cli_cfg.resume and 'args-path' in cli_cfg:
+        cfg = OmegaConf.load(cli_cfg.args_path)
+        cfg.model = Path(cli_cfg.args_path).parent / 'weights' / 'last.pt'
+    else:
+        cfg = OmegaConf.load('cfg.yaml')
+
+    cfg = OmegaConf.merge(cfg, cli_cfg)
+
+    return cfg
