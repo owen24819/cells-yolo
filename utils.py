@@ -50,7 +50,7 @@ def save_yolo_boxes(txt_path: Path, boxes: list[tuple[float, float, float, float
         for x, y, bw, bh in boxes:
             f.write(f"{class_id} {x/w:.6f} {y/h:.6f} {bw/w:.6f} {bh/h:.6f}\n")
 
-def convert_split(dataset_name: str, split_dir: str, target_size: tuple[int, int], data_dir: Path):
+def convert_split(dataset_name: str, split_dir: str, target_size: tuple[int, int], data_dir: Path, task: str = "seg"):
     """
     Convert a CTC dataset split to YOLO format.
 
@@ -59,15 +59,32 @@ def convert_split(dataset_name: str, split_dir: str, target_size: tuple[int, int
         split_dir (str): Directory containing the split data
         target_size (tuple[int, int]): Target size for the images
         data_dir (Path): Directory containing the dataset
+        task (str): Type of annotations to generate ("seg" or "detect")
     """
+    if task not in ["segment", "detect"]:
+        raise ValueError(f"Task {task} not supported. Use 'segment' or 'detect'")
 
     image_root = data_dir / dataset_name / "CTC" / split_dir
     out_img_dir = data_dir / dataset_name / "yolo" / "images" / split_dir
     out_lbl_dir = data_dir / dataset_name / "yolo" / "labels" / split_dir
 
-    if out_img_dir.exists() and out_lbl_dir.exists():
+    if task == "detect" and out_img_dir.exists() and out_lbl_dir.exists():
         print(f"Dataset {dataset_name} {split_dir} already exists, skipping...")
         return
+    elif task == "segment" and out_img_dir.exists() and out_lbl_dir.exists():
+        # Check if any existing label file contains segmentation data
+        label_files = list(out_lbl_dir.glob("*.txt"))
+        if label_files:
+            # Read first label file to check format
+            with label_files[0].open('r') as f:
+                first_line = f.readline().strip()
+                has_segmentation = len(first_line.split()) > 5  # More than class + bbox means segmentation
+            if has_segmentation:
+                print(f"Dataset {dataset_name} {split_dir} already has segmentation labels, skipping...")
+                return
+            else:
+                print(f"Converting existing detection labels to segmentation...")
+
     elif not image_root.exists():
         print(f"Dataset {dataset_name} {split_dir} does not exist, skipping...")
         return
@@ -100,20 +117,68 @@ def convert_split(dataset_name: str, split_dir: str, target_size: tuple[int, int
                 print(f"Skipping {img_file.name} because it is None")
                 continue
 
-            # Calculate boxes from original mask
-            boxes = convert_mask_to_boxes(mask)
-
-            # Only resize the image, not the mask
+            # Resize both image and mask to target size
             image = cv2.resize(image, (target_size[1], target_size[0]))
+            mask = cv2.resize(mask, (target_size[1], target_size[0]), interpolation=cv2.INTER_NEAREST)
 
+            # Save image as jpg
             base = f"{img_folder.name}{img_file.stem}"
             cv2.imwrite(str(out_img_dir / f"{base}.jpg"), image)
-            # Use original mask.shape for normalization
-            save_yolo_boxes(out_lbl_dir / f"{base}.txt", boxes, mask.shape)
 
-def convert_ctc_to_yolo(dataset_name: str, target_size: tuple[int, int], data_dir: Path):
+            # Save annotations - for segmentation, save both masks and boxes
+            mask_path = out_lbl_dir / f"{base}.txt"
+            if task == "segment":
+                boxes = convert_mask_to_boxes(mask)
+                save_yolo_segmentation(mask_path, mask, boxes, class_id=0)
+            else:
+                boxes = convert_mask_to_boxes(mask)
+                save_yolo_boxes(mask_path, boxes, mask.shape, class_id=0)
+
+def save_yolo_segmentation(txt_path: Path, mask: np.ndarray, boxes: list[tuple[float, float, float, float]], class_id: int = 0):
+    """
+    Save both segmentation mask and bounding boxes in YOLO format.
+    Format: class_id x_center y_center width height x1 y1 x2 y2 ... xn yn
+
+    Args:
+        txt_path (Path): Path to save the text file
+        mask (np.ndarray): Segmentation mask
+        boxes (list[tuple[float, float, float, float]]): List of bounding boxes
+        class_id (int): Class ID for the instances
+    """
+    h, w = mask.shape
+    with txt_path.open('w') as f:
+        ids = np.unique(mask)
+        ids = ids[ids != 0]  # Remove background
+
+        for obj_id, box in zip(ids, boxes):
+            contours, _ = cv2.findContours((mask == obj_id).astype(np.uint8), 
+                                         cv2.RETR_EXTERNAL, 
+                                         cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                # First write the bounding box
+                x_center, y_center, width, height = box
+                bbox_str = f"{x_center/w:.6f} {y_center/h:.6f} {width/w:.6f} {height/h:.6f}"
+                
+                # Then add the contour points
+                epsilon = 0.005 * cv2.arcLength(contour, True)
+                contour = cv2.approxPolyDP(contour, epsilon, True)
+                
+                # Skip if less than 3 points (YOLO requirement)
+                if len(contour) < 3:
+                    continue
+
+                points = contour.squeeze().astype(float)
+                points[:, 0] /= w  # normalize x
+                points[:, 1] /= h  # normalize y
+                points_str = ' '.join([f"{x:.6f}" for x in points.flatten()])
+                
+                # Write class_id bbox_coords contour_coords
+                f.write(f"{class_id} {bbox_str} {points_str}\n")
+
+def convert_ctc_to_yolo(dataset_name: str, target_size: tuple[int, int], data_dir: Path, task: str = "segment"):
     for split in ["train", "val", "test"]:
-        convert_split(dataset_name=dataset_name, split_dir=split, target_size=target_size, data_dir=data_dir)
+        convert_split(dataset_name=dataset_name, split_dir=split, target_size=target_size, data_dir=data_dir, task=task)
 
 def download(url: str, dir: Path, unzip: bool = False, delete: bool = False):
     """
@@ -211,7 +276,7 @@ def download_dataset(cfg: OmegaConf):
     
     download_ctc_dataset(dataset_name=dataset, data_dir=data_dir)
 
-    convert_ctc_to_yolo(dataset_name=dataset, target_size=target_size, data_dir=data_dir)
+    convert_ctc_to_yolo(dataset_name=dataset, target_size=target_size, data_dir=data_dir, task=cfg.task)
 
 def get_config():
     """
